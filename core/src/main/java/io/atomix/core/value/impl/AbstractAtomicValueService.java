@@ -32,89 +32,92 @@ import java.util.Set;
 /**
  * Abstract atomic value service.
  */
-public abstract class AbstractAtomicValueService extends AbstractPrimitiveService<AtomicValueClient> implements AtomicValueService {
-  private static final Serializer SERIALIZER = Serializer.using(Namespace.builder()
-      .register(AtomicValueType.instance().namespace())
-      .register(SessionId.class)
-      .build());
+public abstract class AbstractAtomicValueService extends AbstractPrimitiveService<AtomicValueClient>
+		implements AtomicValueService {
+	private static final Serializer SERIALIZER = Serializer.using(
+			Namespace.builder().register(AtomicValueType.instance().namespace()).register(SessionId.class).build());
 
-  private byte[] value;
-  private Set<SessionId> listeners = Sets.newHashSet();
+	private byte[] value;
+	private Set<SessionId> listeners = Sets.newHashSet();
 
-  protected AbstractAtomicValueService(PrimitiveType primitiveType) {
-    super(primitiveType, AtomicValueClient.class);
-  }
+	protected AbstractAtomicValueService(PrimitiveType primitiveType) {
+		super(primitiveType, AtomicValueClient.class);
+	}
 
-  @Override
-  public Serializer serializer() {
-    return SERIALIZER;
-  }
+	@Override
+	public Serializer serializer() {
+		return SERIALIZER;
+	}
 
-  @Override
-  public void backup(BackupOutput writer) {
-    writer.writeInt(value.length).writeBytes(value);
-    writer.writeObject(listeners);
-  }
+	@Override
+	public void backup(BackupOutput writer) {
+		byte[] val = value;
+		if (val == null) {
+			val = new byte[0];
+		}
+		writer.writeInt(val.length).writeBytes(val);
+		writer.writeObject(listeners);
+	}
 
-  @Override
-  public void restore(BackupInput reader) {
-    value = reader.readBytes(reader.readInt());
-    listeners = reader.readObject();
-  }
+	@Override
+	public void restore(BackupInput reader) {
+		value = reader.readBytes(reader.readInt());
+		listeners = reader.readObject();
+	}
 
-  private byte[] updateAndNotify(byte[] value) {
-    byte[] oldValue = this.value;
-    this.value = value;
-    listeners.forEach(session -> getSession(session).accept(client -> client.change(value, oldValue)));
-    return oldValue;
-  }
+	private byte[] updateAndNotify(byte[] value) {
+		byte[] oldValue = this.value;
+		this.value = value;
+		listeners.forEach(session -> getSession(session).accept(client -> client.change(value, oldValue)));
+		return oldValue;
+	}
 
-  @Override
-  public void set(byte[] value) {
-    if (!Arrays.equals(this.value, value)) {
-      updateAndNotify(value);
-    }
-  }
+	@Override
+	public void set(byte[] value) {
+		if (!Arrays.equals(this.value, value)) {
+			updateAndNotify(value);
+		}
+	}
 
-  @Override
-  public byte[] get() {
-    return value;
-  }
+	@Override
+	public byte[] get() {
+		return value;
+	}
 
-  @Override
-  public boolean compareAndSet(byte[] expect, byte[] update) {
-    if (Arrays.equals(value, expect)) {
-      updateAndNotify(update);
-      return true;
-    }
-    return false;
-  }
+	@Override
+	public boolean compareAndSet(byte[] expect, byte[] update) {
+		if (Arrays.equals(value, expect)) {
+			updateAndNotify(update);
+			return true;
+		}
+		return false;
+	}
 
-  @Override
-  public byte[] getAndSet(byte[] value) {
-    if (!Arrays.equals(this.value, value)) {
-      return updateAndNotify(value);
-    }
-    return this.value;
-  }
+	@Override
+	public byte[] getAndSet(byte[] value) {
+		if (!Arrays.equals(this.value, value)) {
+			return updateAndNotify(value);
+		}
+		return this.value;
+	}
 
-  @Override
-  public void addListener() {
-    listeners.add(getCurrentSession().sessionId());
-  }
+	@Override
+	public void addListener() {
+		listeners.add(getCurrentSession().sessionId());
+	}
 
-  @Override
-  public void removeListener() {
-    listeners.remove(getCurrentSession().sessionId());
-  }
+	@Override
+	public void removeListener() {
+		listeners.remove(getCurrentSession().sessionId());
+	}
 
-  @Override
-  protected void onExpire(Session session) {
-    listeners.remove(session.sessionId());
-  }
+	@Override
+	protected void onExpire(Session session) {
+		listeners.remove(session.sessionId());
+	}
 
-  @Override
-  protected void onClose(Session session) {
-    listeners.remove(session.sessionId());
-  }
+	@Override
+	protected void onClose(Session session) {
+		listeners.remove(session.sessionId());
+	}
 }
